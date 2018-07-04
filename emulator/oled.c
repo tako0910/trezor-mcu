@@ -33,13 +33,11 @@ void emulatorPoll(void) {}
 #ifdef PIZERO
 #include "oled_drivers.h"
 static uint8_t oled_type = 0;
+SDL_Rect dstrect;
 #endif
 
-static SDL_Surface *surface = NULL;
-static SDL_Surface *video_surface = NULL;
-static SDL_Rect dstrect;
-
-static int scale_factor = 1;
+static SDL_Renderer *renderer = NULL;
+static SDL_Texture *texture = NULL;
 
 #define ENV_OLED_SCALE "TREZOR_OLED_SCALE"
 
@@ -62,34 +60,44 @@ void oledInit(void) {
 	}
 	atexit(SDL_Quit);
 
-	scale_factor = emulatorScale();
+	int scale = emulatorScale();
 
-	int width = OLED_WIDTH * scale_factor;
-	int height = OLED_HEIGHT * scale_factor;
-
+	SDL_Window *window = SDL_CreateWindow("TREZOR",
+		SDL_WINDOWPOS_UNDEFINED,
+		SDL_WINDOWPOS_UNDEFINED,
+		OLED_WIDTH * scale,
+		OLED_HEIGHT * scale,
 #ifndef PIZERO
-	video_surface = SDL_SetVideoMode(width, height, 0, SDL_SWSURFACE);
-	if (video_surface == NULL) {
-		fprintf(stderr, "Failed to set video mode SDL: %s\n", SDL_GetError());
-		exit(1);
-	}
-	SDL_WM_SetCaption("TREZOR", NULL);
-	dstrect.x = 0;
-	dstrect.y = 0;
+		0);
 #else
-	//output on hdmi via sdl and fb
-	const SDL_VideoInfo *vInfo = SDL_GetVideoInfo();
-	int res_x = vInfo->current_w;
-	int res_y = vInfo->current_h;
-	int depth = vInfo->vfmt->BitsPerPixel;
+		SDL_WINDOW_FULLSCREEN_DESKTOP);
+#endif
 
-	video_surface = SDL_SetVideoMode(res_x, res_y, depth, SDL_SWSURFACE);
-	if (video_surface == NULL) {
-		fprintf(stderr, "Failed to set video mode SDL: %s\n", SDL_GetError());
+	if (window == NULL) {
+		fprintf(stderr, "Failed to create window: %s\n", SDL_GetError());
 		exit(1);
 	}
-	dstrect.x = (res_x - width) / 2;
-	dstrect.y = (res_y - height) / 2;
+
+	renderer = SDL_CreateRenderer(window, -1, 0);
+	if (!renderer) {
+		fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
+		exit(1);
+	}
+#ifndef PIZERO
+	/* Use unscaled coordinate system */
+	SDL_RenderSetLogicalSize(renderer, OLED_WIDTH, OLED_HEIGHT);
+#else
+	SDL_DisplayMode current_mode;
+	if (SDL_GetCurrentDisplayMode(0, &current_mode) != 0)
+	{
+		fprintf(stderr, "Failed to get current display mode: %s\n", SDL_GetError());
+		exit(1);
+	}
+
+	dstrect.x = (current_mode.w - OLED_WIDTH * scale) / 2;
+	dstrect.y = (current_mode.h - OLED_HEIGHT * scale) / 2;
+	dstrect.w = OLED_WIDTH * scale;
+	dstrect.h = OLED_HEIGHT * scale;
 
 	//output on oled if configured also
 	if (getenv("TREZOR_OLED_TYPE")) {
@@ -104,19 +112,11 @@ void oledInit(void) {
 			}
 		}
 	}
-#endif
-
-	dstrect.w = width;
-	dstrect.h = height;
 
 	SDL_ShowCursor(SDL_DISABLE);
+#endif
 
-	surface = SDL_CreateRGBSurface(SDL_SWSURFACE, width, height, 16, 0xF800, 0x07E0, 0x001F, 0);
-	if (video_surface == NULL) {
-		fprintf(stderr, "Failed to create rgb surface SDL: %s\n", SDL_GetError());
-		exit(1);
-	}
-
+	texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, OLED_WIDTH, OLED_HEIGHT);
 	oledClear();
 	oledRefresh();
 }
@@ -127,7 +127,7 @@ void oledRefresh(void) {
 
 	const uint8_t *buffer = oledGetBuffer();
 
-	int sx, sy;
+	static uint32_t data[OLED_HEIGHT][OLED_WIDTH];
 
 	for (size_t i = 0; i < OLED_BUFSIZE; i++) {
 		int x = (OLED_BUFSIZE - 1 - i) % OLED_WIDTH;
@@ -135,45 +135,33 @@ void oledRefresh(void) {
 
 		for (uint8_t shift = 0; shift < 8; shift++, y--) {
 			bool set = (buffer[i] >> shift) & 1;
-
-			for (sy = 0; sy < scale_factor; sy++) {
-				for (sx = 0; sx < scale_factor; sx++) {
-					*(uint16_t *) ((uint8_t *)
-						       surface->pixels + 2 * (scale_factor * x + sy) + (scale_factor * y + sx) * surface->pitch) = set ? 0xFFFF : 0;
-				}
-			}
+			data[y][x] = set ? 0xFFFFFFFF : 0xFF000000;
 		}
 	}
 
-	SDL_BlitSurface(surface, NULL, video_surface, &dstrect);
-	SDL_Flip(video_surface);
-
-	/* Return it back */
-	oledInvertDebugLink();
-
-#ifdef PIZERO
+	SDL_UpdateTexture(texture, NULL, data, OLED_WIDTH * sizeof(uint32_t));
+#ifndef PIZERO
+	SDL_RenderCopy(renderer, texture, NULL, NULL);
+#else
+        SDL_RenderCopy(renderer, texture, NULL, &dstrect);
 	if (oled_type > 0 && oled_type < OLED_LAST_OLED) {
 		oled_display(buffer);
 	}
 #endif
+	SDL_RenderPresent(renderer);
+
+	/* Return it back */
+	oledInvertDebugLink();
 }
 
 void emulatorPoll(void) {
 	SDL_Event event;
 
-	while (SDL_PollEvent(&event) > 0) {
-		switch (event.type) {
-			case SDL_KEYDOWN:
-				if (event.key.keysym.sym == SDLK_ESCAPE) {
-					exit(1);
-				}
-				break;
-			case SDL_QUIT:
-				exit(1);
-				break;
+	if (SDL_PollEvent(&event)) {
+		if (event.type == SDL_QUIT) {
+			exit(1);
 		}
 	}
-
 }
 
 #endif

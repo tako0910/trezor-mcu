@@ -30,7 +30,7 @@
 uint8_t gpio_yes;
 uint8_t gpio_no;
 
-static uint8_t buttonPin(const char* pinVarName, uint8_t defaultPin){
+static uint8_t buttonPin(const char* pinVarName, uint8_t defaultPin) {
 	int pin = defaultPin;
 	const char *variable = getenv(pinVarName);
 	if (variable != NULL) {
@@ -46,7 +46,7 @@ static uint8_t buttonPin(const char* pinVarName, uint8_t defaultPin){
 	return pin;
 }
 
-void buttonInit(void){
+void buttonInit(void) {
 	gpio_yes = buttonPin("TREZOR_GPIO_YES", 16);
 	bcm2835_gpio_fsel(gpio_yes, BCM2835_GPIO_FSEL_INPT);
 	bcm2835_gpio_set_pud(gpio_yes, BCM2835_GPIO_PUD_UP );
@@ -66,11 +66,11 @@ uint16_t buttonRead(void) {
 #else
 
 #if !HEADLESS
-	const uint8_t *scancodes = SDL_GetKeyState(NULL);
-	if (scancodes[SDLK_LEFT]) {
+	const uint8_t *scancodes = SDL_GetKeyboardState(NULL);
+	if (scancodes[SDL_SCANCODE_LEFT]) {
 		state |= BTN_PIN_NO;
 	}
-	if (scancodes[SDLK_RIGHT]) {
+	if (scancodes[SDL_SCANCODE_RIGHT]) {
 		state |= BTN_PIN_YES;
 	}
 #endif
