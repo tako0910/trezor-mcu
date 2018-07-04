@@ -4,6 +4,7 @@ OBJS += oled.o
 OBJS += rng.o
 OBJS += util.o
 OBJS += memory.o
+OBJS += supervise.o
 
 ifneq ($(EMULATOR),1)
 OBJS += startup.o

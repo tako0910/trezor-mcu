@@ -35,19 +35,27 @@ int known_bootloader(int r, const uint8_t *hash) {
 	if (0 == memcmp(hash, "\x3a\xcf\x2e\x51\x0b\x0f\xe1\x56\xb5\x58\xbb\xf7\x9c\x7e\x48\x5e\xb0\x26\xe5\xe0\x8c\xb4\x4d\x15\x2d\x44\xd6\x4e\x0c\x6a\x41\x37", 32)) return 1;  // 1.3.0b
 	if (0 == memcmp(hash, "\x15\x85\x21\x5b\xc6\xe5\x5a\x34\x07\xa8\xb3\xee\xe2\x79\x03\x4e\x95\xb9\xc4\x34\x00\x33\xe1\xb6\xae\x16\x0c\xe6\x61\x19\x67\x15", 32)) return 1;  // 1.3.1
 	if (0 == memcmp(hash, "\x76\x51\xb7\xca\xba\x5a\xae\x0c\xc1\xc6\x5c\x83\x04\xf7\x60\x39\x6f\x77\x60\x6c\xd3\x99\x0c\x99\x15\x98\xf0\xe2\x2a\x81\xe0\x07", 32)) return 1;  // 1.3.2
+	// note to those verifying these values: bootloader versions above this comment are aligned/padded to 32KiB with trailing 0xFF bytes and versions below are padded with 0x00.
+	//                                       for more info, refer to "make -C bootloader align" and "firmware/bl_data.py".
 	if (0 == memcmp(hash, "\x8c\xe8\xd7\x9e\xdf\x43\x0c\x03\x42\x64\x68\x6c\xa9\xb1\xd7\x8d\x26\xed\xb2\xac\xab\x71\x39\xbe\x8f\x98\x5c\x2a\x3c\x6c\xae\x11", 32)) return 1;  // 1.3.3
 	if (0 == memcmp(hash, "\x63\x30\xfc\xec\x16\x72\xfa\xd3\x0b\x42\x1b\x60\xf7\x4f\x83\x9a\x39\x39\x33\x45\x65\xcb\x70\x3b\x2b\xd7\x18\x2e\xa2\xdd\xa0\x19", 32)) return 1;  // 1.4.0
+	if (0 == memcmp(hash, "\xaf\xb4\xcf\x7a\x4a\x57\x96\x10\x0e\xd5\x41\x6b\x75\x12\x1b\xc7\x10\x08\xc2\xa2\xfd\x54\x49\xbd\x8f\x63\xcc\x22\xa6\xa7\xd6\x80", 32)) return 1;  // 1.5.0
 	return 0;
 }
 
 void check_bootloader(void)
 {
+#if MEMORY_PROTECT
 	uint8_t hash[32];
 	int r = memory_bootloader_hash(hash);
 
 	if (!known_bootloader(r, hash)) {
-		layoutDialog(&bmp_icon_error, NULL, NULL, NULL, "Unknown bootloader", "detected.", NULL, "Unplug your TREZOR", "contact our support.", NULL);
-		system_halt();
+		layoutDialog(&bmp_icon_error, NULL, NULL, NULL, _("Unknown bootloader"), _("detected."), NULL, _("Unplug your TREZOR"), _("contact our support."), NULL);
+		shutdown();
+	}
+
+	if (is_mode_unprivileged()) {
+		return;
 	}
 
 	if (r == 32 && 0 == memcmp(hash, bl_hash, 32)) {
@@ -55,21 +63,37 @@ void check_bootloader(void)
 		return;
 	}
 
+	// ENABLE THIS AT YOUR OWN RISK
+	// ATTEMPTING TO OVERWRITE BOOTLOADER WITH UNSIGNED FIRMWARE MAY BRICK
+	// YOUR DEVICE.
+
+	layoutDialog(&bmp_icon_warning, NULL, NULL, NULL, _("Updating bootloader"), NULL, NULL, _("DO NOT UNPLUG"), _("YOUR TREZOR!"), NULL);
+
 	// unlock sectors
 	memory_write_unlock();
 
-	// replace bootloader
-	flash_unlock();
-	for (int i = FLASH_BOOT_SECTOR_FIRST; i <= FLASH_BOOT_SECTOR_LAST; i++) {
-		flash_erase_sector(i, FLASH_CR_PROGRAM_X32);
+	for (int tries = 0; tries < 10; tries++) {
+		// replace bootloader
+		flash_unlock();
+		for (int i = FLASH_BOOT_SECTOR_FIRST; i <= FLASH_BOOT_SECTOR_LAST; i++) {
+			flash_erase_sector(i, FLASH_CR_PROGRAM_X32);
+		}
+		for (int i = 0; i < FLASH_BOOT_LEN / 4; i++) {
+			const uint32_t *w = (const uint32_t *)(bl_data + i * 4);
+			flash_program_word(FLASH_BOOT_START + i * 4, *w);
+		}
+		flash_lock();
+		// check whether the write was OK
+		r = memory_bootloader_hash(hash);
+		if (r == 32 && 0 == memcmp(hash, bl_hash, 32)) {
+			// OK -> show info and halt
+			layoutDialog(&bmp_icon_info, NULL, NULL, NULL, _("Update finished"), _("successfully."), NULL, _("Please reconnect"), _("the device."), NULL);
+			shutdown();
+			return;
+		}
 	}
-	for (int i = 0; i < FLASH_BOOT_LEN / 4; i++) {
-		const uint32_t *w = (const uint32_t *)(bl_data + i * 4);
-		flash_program_word(FLASH_BOOT_START + i * 4, *w);
-	}
-	flash_lock();
-
 	// show info and halt
-	layoutDialog(&bmp_icon_info, NULL, NULL, NULL, _("Update finished"), _("successfully."), NULL, _("Please reconnect"), _("the device."), NULL);
-	system_halt();
+	layoutDialog(&bmp_icon_error, NULL, NULL, NULL, _("Bootloader update"), _("broken."), NULL, _("Unplug your TREZOR"), _("contact our support."), NULL);
+	shutdown();
+#endif
 }

@@ -1,10 +1,5 @@
 APPVER = 1.0.0
 
-ifeq ($(FASTFLASH),1)
-OBJS += fastflash.o
-OBJS += bootloader.o
-endif
-
 NAME  = trezor
 
 ifeq ($(EMULATOR),1)
@@ -29,6 +24,7 @@ OBJS += trezor.o
 OBJS += pinmatrix.o
 OBJS += fsm.o
 OBJS += coins.o
+OBJS += coin_info.o
 OBJS += transaction.o
 OBJS += protect.o
 OBJS += layout2.o
@@ -40,6 +36,7 @@ OBJS += ethereum.o
 OBJS += ethereum_tokens.o
 OBJS += nem2.o
 OBJS += nem_mosaics.o
+# OBJS += stellar.o
 
 OBJS += debug.o
 
@@ -70,11 +67,14 @@ OBJS += ../vendor/trezor-crypto/pbkdf2.o
 OBJS += ../vendor/trezor-crypto/base32.o
 OBJS += ../vendor/trezor-crypto/base58.o
 OBJS += ../vendor/trezor-crypto/segwit_addr.o
+OBJS += ../vendor/trezor-crypto/cash_addr.o
 
 OBJS += ../vendor/trezor-crypto/ripemd160.o
 OBJS += ../vendor/trezor-crypto/sha2.o
 OBJS += ../vendor/trezor-crypto/sha3.o
 OBJS += ../vendor/trezor-crypto/blake256.o
+OBJS += ../vendor/trezor-crypto/blake2b.o
+OBJS += ../vendor/trezor-crypto/groestl.o
 OBJS += ../vendor/trezor-crypto/hasher.o
 
 OBJS += ../vendor/trezor-crypto/aes/aescrypt.o
@@ -93,13 +93,15 @@ OBJS += ../vendor/nanopb/pb_encode.o
 OBJS += protob/messages.pb.o
 OBJS += protob/types.pb.o
 
-include ../Makefile.include
+OPTFLAGS ?= -Os
 
-ifeq ($(FASTFLASH),1)
-CFLAGS += -DFASTFLASH=1
-else
-CFLAGS += -DFASTFLASH=0
-endif
+../vendor/trezor-crypto/bip32.o: OPTFLAGS = -O3
+../vendor/trezor-crypto/bip39.o: OPTFLAGS = -O3
+../vendor/trezor-crypto/ecdsa.o: OPTFLAGS = -O3
+../vendor/trezor-crypto/sha2.o: OPTFLAGS = -O3
+../vendor/trezor-crypto/secp256k1.o: OPTFLAGS = -O3
+
+include ../Makefile.include
 
 DEBUG_LINK ?= 0
 DEBUG_LOG  ?= 0
@@ -112,27 +114,23 @@ CFLAGS += -DDEBUG_LOG=$(DEBUG_LOG)
 CFLAGS += -DSCM_REVISION='"$(shell git rev-parse HEAD | sed 's:\(..\):\\x\1:g')"'
 CFLAGS += -DUSE_ETHEREUM=1
 CFLAGS += -DUSE_NEM=1
+CFLAGS += -DUSE_MONERO=0
 
-bootloader.o: ../fastflash/bootloader.bin
-	$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
-		--redefine-sym _binary_$(shell echo -n "$<" | tr -c "[:alnum:]" "_")_start=__bootloader_start__ \
-		--redefine-sym _binary_$(shell echo -n "$<" | tr -c "[:alnum:]" "_")_size=__bootloader_size__ \
-		--rename-section .data=.rodata \
-		$< $@
+define GENERATE_CODE
+# $(1) - Basename for script and output header file
+# $(2) - Dependencies
+# $(3) - Additional output files
 
-coins_count.h: coins-gen.py coins.json
-	$(PYTHON) $< count > $@
+$(1).h $(3): $(1).py $(2)
+	$(PYTHON) $(1).py
 
-coins_array.h: coins-gen.py coins.json
-	$(PYTHON) $< array > $@
-
-nem_mosaics.c nem_mosaics.h: nem_mosaics.py nem_mosaics.json
-	$(PYTHON) $<
-
-bl_data.h: bl_data-gen.py ../bootloader/bootloader.bin
-	$(PYTHON) $<
+# Serialize build for parallel Make
+$(1).h: $(3)
 
 clean::
-	rm -f coins_count.h coins_array.h
-	rm -f nem_mosaics.c nem_mosaics.h
-	rm -f bl_data.h
+	rm -f $(1).h $(3)
+endef
+
+$(eval $(call GENERATE_CODE,coin_info,defs,coin_info.c))
+$(eval $(call GENERATE_CODE,nem_mosaics,defs/nem/nem_mosaics.json,nem_mosaics.c))
+$(eval $(call GENERATE_CODE,bl_data,../bootloader/bootloader.bin))

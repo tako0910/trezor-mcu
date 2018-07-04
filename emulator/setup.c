@@ -46,7 +46,7 @@
 #define RANDOM_DEV_FILE "/dev/urandom"
 #endif
 
-void *emulator_flash_base = NULL;
+uint8_t *emulator_flash_base = NULL;
 
 uint32_t __stack_chk_guard;
 
@@ -62,6 +62,10 @@ void setup(void) {
     bcm2835_init();
     buttonInit();
 #endif
+}
+
+void __attribute__((noreturn)) shutdown(void) {
+	for(;;) pause();
 }
 
 void emulatorRandom(void *buffer, size_t size) {

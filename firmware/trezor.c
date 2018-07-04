@@ -31,7 +31,6 @@
 #include "buttons.h"
 #include "gettext.h"
 #include "bl_check.h"
-#include "fastflash.h"
 
 /* Screen timeout */
 uint32_t system_millis_lock_start;
@@ -75,9 +74,9 @@ void check_lock_screen(void)
 		}
 	}
 
-	// if homescreen is shown for longer than 10 minutes, lock too
+	// if homescreen is shown for too long
 	if (layoutLast == layoutHome) {
-		if ((timer_ms() - system_millis_lock_start) >= 600000) {
+		if ((timer_ms() - system_millis_lock_start) >= storage_getAutoLockDelayMs()) {
 			// lock the screen
 			session_clear(true);
 			layoutScreensaver();
@@ -97,19 +96,15 @@ int main(void)
 	__stack_chk_guard = random32(); // this supports compiler provided unpredictable stack protection checks
 #endif
 
-#if FASTFLASH
-	uint16_t state = gpio_port_read(BTN_PORT);
-	if ((state & BTN_PIN_NO) == 0) {
-		run_bootloader();
-	}
-#endif
+	if (!is_mode_unprivileged()) {
 
-	timer_init();
+		timer_init();
 
 #ifdef APPVER
-	// enable MPU (Memory Protection Unit)
-	mpu_config();
+		// enable MPU (Memory Protection Unit)
+		mpu_config();
 #endif
+	}
 
 #if DEBUG_LINK
 	oledSetDebugLink(1);

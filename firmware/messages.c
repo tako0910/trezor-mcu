@@ -48,12 +48,7 @@ const pb_field_t *MessageFields(char type, char dir, uint16_t msg_id)
 {
 	const struct MessagesMap_t *m = MessagesMap;
 	while (m->type) {
-#if EMULATOR
-		(void) type;
-		if (dir == m->dir && msg_id == m->msg_id) {
-#else
 		if (type == m->type && dir == m->dir && msg_id == m->msg_id) {
-#endif
 			return m->fields;
 		}
 		m++;
@@ -65,12 +60,7 @@ void MessageProcessFunc(char type, char dir, uint16_t msg_id, void *ptr)
 {
 	const struct MessagesMap_t *m = MessagesMap;
 	while (m->type) {
-#if EMULATOR
-		(void) type;
-		if (dir == m->dir && msg_id == m->msg_id) {
-#else
 		if (type == m->type && dir == m->dir && msg_id == m->msg_id) {
-#endif
 			m->process_func(ptr);
 			return;
 		}
@@ -243,7 +233,7 @@ void msg_process(char type, uint16_t msg_id, const pb_field_t *fields, uint8_t *
 	}
 }
 
-void msg_read_common(char type, const uint8_t *buf, int len)
+void msg_read_common(char type, const uint8_t *buf, uint32_t len)
 {
 	static char read_state = READSTATE_IDLE;
 	static CONFIDENTIAL uint8_t msg_in[MSG_IN_SIZE];
@@ -259,7 +249,7 @@ void msg_read_common(char type, const uint8_t *buf, int len)
 			return;
 		}
 		msg_id = (buf[3] << 8) + buf[4];
-		msg_size = (buf[5] << 24)+ (buf[6] << 16) + (buf[7] << 8) + buf[8];
+		msg_size = ((uint32_t) buf[5] << 24)+ (buf[6] << 16) + (buf[7] << 8) + buf[8];
 
 		fields = MessageFields(type, 'i', msg_id);
 		if (!fields) { // unknown message
@@ -281,8 +271,12 @@ void msg_read_common(char type, const uint8_t *buf, int len)
 			read_state = READSTATE_IDLE;
 			return;
 		}
-		memcpy(msg_in + msg_pos, buf + 1, len - 1);
-		msg_pos += len - 1;
+		/* raw data starts at buf + 1 with len - 1 bytes */
+		buf++;
+		len = MIN(len - 1, MSG_IN_SIZE - msg_pos);
+
+		memcpy(msg_in + msg_pos, buf, len);
+		msg_pos += len;
 	}
 
 	if (msg_pos >= msg_size) {
@@ -333,14 +327,13 @@ void msg_read_tiny(const uint8_t *buf, int len)
 		return;
 	}
 	uint16_t msg_id = (buf[3] << 8) + buf[4];
-	uint32_t msg_size = (buf[5] << 24) + (buf[6] << 16) + (buf[7] << 8) + buf[8];
+	uint32_t msg_size = ((uint32_t) buf[5] << 24) + (buf[6] << 16) + (buf[7] << 8) + buf[8];
 	if (msg_size > 64 || len - msg_size < 9) {
 		return;
 	}
 
 	const pb_field_t *fields = 0;
-	// upstream nanopb is missing const qualifier, so we have to cast :-/
-	pb_istream_t stream = pb_istream_from_buffer((uint8_t *)buf + 9, msg_size);
+	pb_istream_t stream = pb_istream_from_buffer(buf + 9, msg_size);
 
 	switch (msg_id) {
 		case MessageType_MessageType_PinMatrixAck:

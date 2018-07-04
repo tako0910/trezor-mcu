@@ -75,7 +75,7 @@ static const char *address_n_str(const uint32_t *address_n, size_t address_n_cou
 			bool native_segwit = (address_n[0] == (0x80000000 + 84));
 			bool p2sh_segwit = (address_n[0] == (0x80000000 + 49));
 			bool legacy = false;
-			const CoinInfo *coin = coinByCoinType(address_n[1]);
+			const CoinInfo *coin = coinBySlip44(address_n[1]);
 			const char *abbr = 0;
 			if (native_segwit) {
 				if (coin && coin->has_segwit && coin->bech32_prefix) {
@@ -153,7 +153,7 @@ static const char *address_n_str(const uint32_t *address_n, size_t address_n_cou
 }
 
 // split longer string into 4 rows, rowlen chars each
-static const char **split_message(const uint8_t *msg, uint32_t len, uint32_t rowlen)
+const char **split_message(const uint8_t *msg, uint32_t len, uint32_t rowlen)
 {
 	static char str[4][32 + 1];
 	if (rowlen > 32) {
@@ -230,6 +230,10 @@ void layoutHome(void)
 			oledDrawBitmap(40, 0, &bmp_logo64);
 		}
 	}
+	if (storage_unfinishedBackup()) {
+		oledBox(0, 0, 127, 8, false);
+		oledDrawStringCenter(0, "BACKUP FAILED!", FONT_STANDARD);
+	} else
 	if (storage_needsBackup()) {
 		oledBox(0, 0, 127, 8, false);
 		oledDrawStringCenter(0, "NEEDS BACKUP!", FONT_STANDARD);
@@ -246,6 +250,16 @@ void layoutConfirmOutput(const CoinInfo *coin, const TxOutputType *out)
 	bn_format_uint64(out->amount, NULL, coin->coin_shortcut, BITCOIN_DIVISIBILITY, 0, false, str_out, sizeof(str_out) - 3);
 	strlcat(str_out, " to", sizeof(str_out));
 	const char *addr = out->address;
+	if (coin->cashaddr_prefix) {
+		/* If this is a cashaddr address, remove the prefix from the
+		 * string presented to the user
+		 */
+		int prefix_len = strlen(coin->cashaddr_prefix);
+		if (strncmp(addr, coin->cashaddr_prefix, prefix_len) == 0
+			&& addr[prefix_len] == ':') {
+			addr += prefix_len + 1;
+		}
+	}
 	int addrlen = strlen(addr);
 	int numlines = addrlen <= 42 ? 2 : 3;
 	int linelen = (addrlen - 1) / numlines + 1;
@@ -745,7 +759,7 @@ void layoutNEMTransferUnknownMosaic(const char *namespace, const char *mosaic, u
 }
 
 void layoutNEMTransferPayload(const uint8_t *payload, size_t length, bool encrypted) {
-	if (payload[0] == 0xFE) {
+	if (length >= 1 && payload[0] == 0xFE) {
 		char encoded[(length - 1) * 2 + 1];
 		data2hex(&payload[1], length - 1, encoded);
 

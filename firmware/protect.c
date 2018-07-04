@@ -19,6 +19,7 @@
 
 #include "protect.h"
 #include "storage.h"
+#include "memory.h"
 #include "messages.h"
 #include "usb.h"
 #include "oled.h"
@@ -33,6 +34,7 @@
 
 #define MAX_WRONG_PINS 15
 
+bool protectAbortedByCancel = false;
 bool protectAbortedByInitialize = false;
 
 bool protectButton(ButtonRequestType type, bool confirm_only)
@@ -75,10 +77,9 @@ bool protectButton(ButtonRequestType type, bool confirm_only)
 		}
 
 		// check for Cancel / Initialize
-		if (msg_tiny_id == MessageType_MessageType_Cancel || msg_tiny_id == MessageType_MessageType_Initialize) {
-			if (msg_tiny_id == MessageType_MessageType_Initialize) {
-				protectAbortedByInitialize = true;
-			}
+		protectAbortedByCancel = (msg_tiny_id == MessageType_MessageType_Cancel);
+		protectAbortedByInitialize = (msg_tiny_id == MessageType_MessageType_Initialize);
+		if (protectAbortedByCancel || protectAbortedByInitialize) {
 			msg_tiny_id = 0xFFFF;
 			result = false;
 			break;
@@ -127,11 +128,11 @@ const char *requestPin(PinMatrixRequestType type, const char *text)
 			usbTiny(0);
 			return pma->pin;
 		}
-		if (msg_tiny_id == MessageType_MessageType_Cancel || msg_tiny_id == MessageType_MessageType_Initialize) {
+		// check for Cancel / Initialize
+		protectAbortedByCancel = (msg_tiny_id == MessageType_MessageType_Cancel);
+		protectAbortedByInitialize = (msg_tiny_id == MessageType_MessageType_Initialize);
+		if (protectAbortedByCancel || protectAbortedByInitialize) {
 			pinmatrix_done(0);
-			if (msg_tiny_id == MessageType_MessageType_Initialize) {
-				protectAbortedByInitialize = true;
-			}
 			msg_tiny_id = 0xFFFF;
 			usbTiny(0);
 			return 0;
@@ -159,8 +160,8 @@ bool protectPin(bool use_cached)
 	if (!storage_hasPin() || (use_cached && session_isPinCached())) {
 		return true;
 	}
-	uint32_t *fails = storage_getPinFailsPtr();
-	uint32_t wait = ~*fails;
+	uint32_t fails = storage_getPinFailsOffset();
+	uint32_t wait = storage_getPinWait(fails);
 	protectCheckMaxTry(wait);
 	usbTiny(1);
 	while (wait > 0) {
@@ -181,6 +182,7 @@ bool protectPin(bool use_cached)
 		// wait one second
 		usbSleep(1000);
 		if (msg_tiny_id == MessageType_MessageType_Initialize) {
+			protectAbortedByCancel = false;
 			protectAbortedByInitialize = true;
 			msg_tiny_id = 0xFFFF;
 			usbTiny(0);
@@ -205,7 +207,7 @@ bool protectPin(bool use_cached)
 		storage_resetPinFails(fails);
 		return true;
 	} else {
-		protectCheckMaxTry(~*fails);
+		protectCheckMaxTry(storage_getPinWait(fails));
 		fsm_sendFailure(FailureType_Failure_PinInvalid, NULL);
 		return false;
 	}
@@ -261,10 +263,10 @@ bool protectPassphrase(void)
 			result = true;
 			break;
 		}
-		if (msg_tiny_id == MessageType_MessageType_Cancel || msg_tiny_id == MessageType_MessageType_Initialize) {
-			if (msg_tiny_id == MessageType_MessageType_Initialize) {
-				protectAbortedByInitialize = true;
-			}
+		// check for Cancel / Initialize
+		protectAbortedByCancel = (msg_tiny_id == MessageType_MessageType_Cancel);
+		protectAbortedByInitialize = (msg_tiny_id == MessageType_MessageType_Initialize);
+		if (protectAbortedByCancel || protectAbortedByInitialize) {
 			msg_tiny_id = 0xFFFF;
 			result = false;
 			break;
