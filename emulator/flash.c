@@ -136,5 +136,6 @@ void svc_flash_erase_sector(uint16_t sector) {
 uint32_t svc_flash_lock(void) {
 	assert (!flash_locked);
 	flash_locked = true;
+	sync();
 	return 0;
 }
