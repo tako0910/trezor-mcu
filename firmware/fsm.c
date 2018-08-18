@@ -69,13 +69,13 @@ static uint8_t msg_resp[MSG_OUT_SIZE] __attribute__ ((aligned));
 
 #define CHECK_INITIALIZED \
 	if (!storage_isInitialized()) { \
-		fsm_sendFailure(FailureType_Failure_NotInitialized, NULL); \
+		fsm_sendFailure(Failure_FailureType_Failure_NotInitialized, NULL); \
 		return; \
 	}
 
 #define CHECK_NOT_INITIALIZED \
 	if (storage_isInitialized()) { \
-		fsm_sendFailure(FailureType_Failure_UnexpectedMessage, _("Device is already initialized. Use Wipe first.")); \
+		fsm_sendFailure(Failure_FailureType_Failure_UnexpectedMessage, _("Device is already initialized. Use Wipe first.")); \
 		return; \
 	}
 
@@ -93,7 +93,7 @@ static uint8_t msg_resp[MSG_OUT_SIZE] __attribute__ ((aligned));
 
 #define CHECK_PARAM(cond, errormsg) \
 	if (!(cond)) { \
-		fsm_sendFailure(FailureType_Failure_DataError, (errormsg)); \
+		fsm_sendFailure(Failure_FailureType_Failure_DataError, (errormsg)); \
 		layoutHome(); \
 		return; \
 	}
@@ -109,9 +109,9 @@ void fsm_sendSuccess(const char *text)
 }
 
 #if DEBUG_LINK
-void fsm_sendFailureDebug(FailureType code, const char *text, const char *source)
+void fsm_sendFailureDebug(Failure_FailureType code, const char *text, const char *source)
 #else
-void fsm_sendFailure(FailureType code, const char *text)
+void fsm_sendFailure(Failure_FailureType code, const char *text)
 #endif
 {
 	if (protectAbortedByCancel) {
@@ -127,43 +127,43 @@ void fsm_sendFailure(FailureType code, const char *text)
 	resp->code = code;
 	if (!text) {
 		switch (code) {
-			case FailureType_Failure_UnexpectedMessage:
+			case Failure_FailureType_Failure_UnexpectedMessage:
 				text = _("Unexpected message");
 				break;
-			case FailureType_Failure_ButtonExpected:
+			case Failure_FailureType_Failure_ButtonExpected:
 				text = _("Button expected");
 				break;
-			case FailureType_Failure_DataError:
+			case Failure_FailureType_Failure_DataError:
 				text = _("Data error");
 				break;
-			case FailureType_Failure_ActionCancelled:
+			case Failure_FailureType_Failure_ActionCancelled:
 				text = _("Action cancelled by user");
 				break;
-			case FailureType_Failure_PinExpected:
+			case Failure_FailureType_Failure_PinExpected:
 				text = _("PIN expected");
 				break;
-			case FailureType_Failure_PinCancelled:
+			case Failure_FailureType_Failure_PinCancelled:
 				text = _("PIN cancelled");
 				break;
-			case FailureType_Failure_PinInvalid:
+			case Failure_FailureType_Failure_PinInvalid:
 				text = _("PIN invalid");
 				break;
-			case FailureType_Failure_InvalidSignature:
+			case Failure_FailureType_Failure_InvalidSignature:
 				text = _("Invalid signature");
 				break;
-			case FailureType_Failure_ProcessError:
+			case Failure_FailureType_Failure_ProcessError:
 				text = _("Process error");
 				break;
-			case FailureType_Failure_NotEnoughFunds:
+			case Failure_FailureType_Failure_NotEnoughFunds:
 				text = _("Not enough funds");
 				break;
-			case FailureType_Failure_NotInitialized:
+			case Failure_FailureType_Failure_NotInitialized:
 				text = _("Device not initialized");
 				break;
-			case FailureType_Failure_PinMismatch:
+			case Failure_FailureType_Failure_PinMismatch:
 				text = _("PIN mismatch");
 				break;
-			case FailureType_Failure_FirmwareError:
+			case Failure_FailureType_Failure_FirmwareError:
 				text = _("Firmware error");
 				break;
 		}
@@ -192,7 +192,7 @@ static const CoinInfo *fsm_getCoin(bool has_name, const char *name)
 		coin = coinByName("Bitcoin");
 	}
 	if (!coin) {
-		fsm_sendFailure(FailureType_Failure_DataError, _("Invalid coin name"));
+		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Invalid coin name"));
 		layoutHome();
 		return 0;
 	}
@@ -206,7 +206,7 @@ static HDNode *fsm_getDerivedNode(const char *curve, const uint32_t *address_n, 
 		*fingerprint = 0;
 	}
 	if (!storage_getRootNode(&node, curve, true)) {
-		fsm_sendFailure(FailureType_Failure_NotInitialized, _("Device not initialized or passphrase request cancelled or unsupported curve"));
+		fsm_sendFailure(Failure_FailureType_Failure_NotInitialized, _("Device not initialized or passphrase request cancelled or unsupported curve"));
 		layoutHome();
 		return 0;
 	}
@@ -214,7 +214,7 @@ static HDNode *fsm_getDerivedNode(const char *curve, const uint32_t *address_n, 
 		return &node;
 	}
 	if (hdnode_private_ckd_cached(&node, address_n, address_n_count, fingerprint) == 0) {
-		fsm_sendFailure(FailureType_Failure_ProcessError, _("Failed to derive private key"));
+		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Failed to derive private key"));
 		layoutHome();
 		return 0;
 	}
@@ -230,11 +230,11 @@ static bool fsm_layoutAddress(const char *address, const char *desc, bool ignore
 			display_addr += prefixlen;
 		}
 		layoutAddress(display_addr, desc, qrcode, ignorecase, address_n, address_n_count);
-		if (protectButton(ButtonRequestType_ButtonRequest_Address, false)) {
+		if (protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Address, false)) {
 			return true;
 		}
 		if (protectAbortedByCancel || protectAbortedByInitialize) {
-			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
+			fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
 			layoutHome();
 			return false;
 		}
@@ -247,5 +247,5 @@ static bool fsm_layoutAddress(const char *address, const char *desc, bool ignore
 #include "fsm_msg_ethereum.h"
 #include "fsm_msg_crypto.h"
 #include "fsm_msg_nem.h"
-// #include "fsm_msg_stellar.h"
+#include "fsm_msg_stellar.h"
 #include "fsm_msg_debug.h"

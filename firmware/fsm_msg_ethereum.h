@@ -35,8 +35,17 @@ void fsm_msgEthereumGetAddress(EthereumGetAddress *msg)
 		char desc[16];
 		strlcpy(desc, "Address:", sizeof(desc));
 
+		uint32_t slip44 = msg->address_n[1] & 0x7fffffff;
+		bool rskip60 = false;
+		uint32_t chain_id = 0;
+		// constants from trezor-common/defs/ethereum/networks.json
+		switch (slip44) {
+			case 137: rskip60 = true; chain_id = 30; break;
+			case 37310: rskip60 = true; chain_id = 31; break;
+		}
+
 		char address[43] = { '0', 'x' };
-		ethereum_address_checksum(resp->address.bytes, address + 2);
+		ethereum_address_checksum(resp->address.bytes, address + 2, rskip60, chain_id);
 
 		if (!fsm_layoutAddress(address, desc, false, 0, msg->address_n, msg->address_n_count)) {
 			return;
@@ -54,8 +63,8 @@ void fsm_msgEthereumSignMessage(EthereumSignMessage *msg)
 	CHECK_INITIALIZED
 
 	layoutSignMessage(msg->message.bytes, msg->message.size);
-	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ProtectCall, false)) {
+		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
@@ -75,21 +84,21 @@ void fsm_msgEthereumVerifyMessage(EthereumVerifyMessage *msg)
 	CHECK_PARAM(msg->has_message, _("No message provided"));
 
 	if (ethereum_message_verify(msg) != 0) {
-		fsm_sendFailure(FailureType_Failure_DataError, _("Invalid signature"));
+		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Invalid signature"));
 		return;
 	}
 
 	char address[43] = { '0', 'x' };
-	ethereum_address_checksum(msg->address.bytes, address + 2);
+	ethereum_address_checksum(msg->address.bytes, address + 2, false, 0);
 	layoutVerifyAddress(address);
-	if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
-		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Other, false)) {
+		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
 	layoutVerifyMessage(msg->message.bytes, msg->message.size);
-	if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
-		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Other, false)) {
+		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
