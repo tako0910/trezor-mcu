@@ -3,18 +3,14 @@ APPVER = 1.0.0
 NAME  = trezor
 
 ifeq ($(EMULATOR),1)
-  ifeq ($(TRANSPORT), PIPE)
-    OBJS += usb.o
-  else
-    ifeq ($(TRANSPORT), USBG)
+  ifdef PIZERO
       OBJS += usb.o
-    else
+  else
       OBJS += udp.o
-    endif
   endif
 else
-  OBJS += usb.o
-  OBJS += bl_check.o
+OBJS += usb.o
+OBJS += bl_check.o
 endif
 
 OBJS += u2f.o

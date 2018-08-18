@@ -23,10 +23,6 @@
 #include <libopencm3/stm32/gpio.h>
 #include <stdbool.h>
 
-#ifdef PIZERO
-void buttonInit(void);
-#endif
-
 struct buttonState {
 	volatile bool YesUp;
 	volatile int YesDown;

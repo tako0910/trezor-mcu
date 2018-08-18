@@ -25,11 +25,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#ifdef PIZERO
-#include <bcm2835.h>
-#include "buttons.h"
-#endif
-
 #include <libopencm3/stm32/flash.h>
 
 #include "memory.h"
@@ -53,12 +48,52 @@ static int random_fd = -1;
 static void setup_urandom(void);
 static void setup_flash(void);
 
+#ifdef PIZERO
+
+#include <bcm2835.h>
+#include "buttons.h"
+
+static uint8_t gpio_yes;
+static uint8_t gpio_no;
+
+static uint8_t buttonPin(const char* pinVarName, uint8_t defaultPin) {
+	int pin = defaultPin;
+	const char *variable = getenv(pinVarName);
+	if (variable != NULL) {
+		int gpio = atoi(variable);
+		if (gpio >= 1 && pin <=27) {
+			pin = gpio;
+		} else {
+			fprintf(stderr, "Invalid value in config file for %s. Must be between 1 and 27.\n", pinVarName);
+			exit(1);
+		}
+	}
+
+	return pin;
+}
+
+uint16_t buttonRead(void) {
+	uint16_t state = 0;
+
+	state |= bcm2835_gpio_lev(gpio_no) == 0 ? BTN_PIN_NO : 0;
+	state |= bcm2835_gpio_lev(gpio_yes) == 0 ? BTN_PIN_YES : 0;
+	return ~state;
+}
+
+#endif
+
+
 void setup(void) {
 	setup_urandom();
 	setup_flash();
 #ifdef PIZERO
-    bcm2835_init();
-    buttonInit();
+	bcm2835_init();
+	gpio_yes = buttonPin("TREZOR_GPIO_YES", 16);
+	bcm2835_gpio_fsel(gpio_yes, BCM2835_GPIO_FSEL_INPT);
+	bcm2835_gpio_set_pud(gpio_yes, BCM2835_GPIO_PUD_UP );
+	gpio_no = buttonPin("TREZOR_GPIO_NO", 12);
+	bcm2835_gpio_fsel(gpio_no, BCM2835_GPIO_FSEL_INPT);
+	bcm2835_gpio_set_pud(gpio_no, BCM2835_GPIO_PUD_UP );
 #endif
 }
 

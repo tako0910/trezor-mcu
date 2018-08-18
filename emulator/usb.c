@@ -25,10 +25,8 @@
 #include <poll.h>
 #include <sys/sysmacros.h>
 
-#if defined(TRANSPORT_USBG)
 #include <usbg/usbg.h>
 #include <usbg/function/hid.h>
-#endif
 
 #include <libopencm3/usb/usbd.h>
 
@@ -166,7 +164,14 @@ int usbd_register_control_callback(usbd_device * usbd_dev, uint8_t type,
 	return 0;
 }
 
-#if defined(TRANSPORT_USBG)
+void usbd_disconnect(usbd_device * usbd_dev, bool disconnected) {
+	(void) usbd_dev;
+	(void) disconnected;
+	//not supported
+}
+
+#if !defined(TRANSPORT_PIPE)
+
 int usbd_register_set_config_callback(usbd_device * usbd_dev, usbd_set_config_callback callback) {
 	usbg_state *usbg_state;
 
@@ -309,9 +314,8 @@ int usbd_register_set_config_callback(usbd_device * usbd_dev, usbd_set_config_ca
 	}
 	return 0;
 }
-#endif
 
-#if defined(TRANSPORT_PIPE)
+#else
 
 int usbd_register_set_config_callback(usbd_device * usbd_dev, usbd_set_config_callback callback) {
 	(*callback) (usbd_dev, usbd_dev->config_descriptor->bConfigurationValue);
@@ -366,9 +370,3 @@ int usbd_register_set_config_callback(usbd_device * usbd_dev, usbd_set_config_ca
 }
 
 #endif
-
-void usbd_disconnect(usbd_device * usbd_dev, bool disconnected) {
-	(void) usbd_dev;
-	(void) disconnected;
-	//not supported
-}

@@ -387,7 +387,7 @@ void oledFrame(int x1, int y1, int x2, int y2)
  */
 void oledSwipeLeft(void)
 {
-#if !EMULATOR
+#if !defined(PIZERO)
 	for (int i = 0; i < OLED_WIDTH; i++) {
 		for (int j = 0; j < OLED_HEIGHT / 8; j++) {
 			for (int k = OLED_WIDTH-1; k > 0; k--) {
