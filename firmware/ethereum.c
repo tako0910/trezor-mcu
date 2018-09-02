@@ -37,7 +37,7 @@
 #include "messages.pb.h"
 
 /* maximum supported chain id.  v must fit in an uint32_t. */
-#define MAX_CHAIN_ID 2147483630
+#define MAX_CHAIN_ID 2147483629
 
 static bool ethereum_signing = false;
 static uint32_t data_total, data_left;
@@ -251,18 +251,20 @@ static void ethereumFormatAmount(const bignum256 *amnt, const TokenType *token, 
 			switch (chain_id) {
 				case    1: suffix = " ETH";  break;  // Ethereum
 				case    2: suffix = " EXP";  break;  // Expanse
-				case    3: suffix = " tETH"; break;  // Ethereum Testnet Ropsten
-				case    4: suffix = " tETH"; break;  // Ethereum Testnet Rinkeby
+				case    3: suffix = " tROP"; break;  // Ethereum Testnet Ropsten
+				case    4: suffix = " tRIN"; break;  // Ethereum Testnet Rinkeby
 				case    8: suffix = " UBQ";  break;  // UBIQ
 				case   20: suffix = " EOSC"; break;  // EOS Classic
 				case   28: suffix = " ETSC"; break;  // Ethereum Social
 				case   30: suffix = " RSK";  break;  // RSK
 				case   31: suffix = " tRSK"; break;  // RSK Testnet
-				case   42: suffix = " tETH"; break;  // Ethereum Testnet Kovan
+				case   42: suffix = " tKOV"; break;  // Ethereum Testnet Kovan
+				case   60: suffix = " GO";   break;  // GoChain
 				case   61: suffix = " ETC";  break;  // Ethereum Classic
 				case   62: suffix = " tETC"; break;  // Ethereum Classic Testnet
 				case   64: suffix = " ELLA"; break;  // Ellaism
 				case  820: suffix = " CLO";  break;  // Callisto
+				case 1620: suffix = " ATH";  break;  // Atheios
 				case 1987: suffix = " EGEM"; break;  // EtherGem
 				case 31102: suffix = " ESN"; break;  // Ethersocial Network
 				case 200625: suffix = " AKA"; break; // Akroma
