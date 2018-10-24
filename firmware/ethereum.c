@@ -33,6 +33,7 @@
 #include "util.h"
 #include "gettext.h"
 #include "ethereum_tokens.h"
+#include "ethereum_networks.h"
 #include "memzero.h"
 #include "messages.pb.h"
 
@@ -158,6 +159,24 @@ static int rlp_calculate_length(int length, uint8_t firstbyte)
 	}
 }
 
+static int rlp_calculate_number_length(uint32_t number)
+{
+	if (number <= 0x7f) {
+		return 1;
+	}
+	else if (number <= 0xff) {
+		return 2;
+	}
+	else if (number <= 0xffff) {
+		return 3;
+	}
+	else if (number <= 0xffffff) {
+		return 4;
+	} else {
+		return 5;
+	}
+}
+
 static void send_request_chunk(void)
 {
 	int progress = 1000 - (data_total > 1000000
@@ -191,7 +210,7 @@ static void send_signature(void)
 
 	keccak_Final(&keccak_ctx, hash);
 	if (ecdsa_sign_digest(&secp256k1, privkey, hash, sig, &v, ethereum_is_canonic) != 0) {
-		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Signing failed"));
+		fsm_sendFailure(FailureType_Failure_ProcessError, _("Signing failed"));
 		ethereum_signing_abort();
 		return;
 	}
@@ -247,32 +266,7 @@ static void ethereumFormatAmount(const bignum256 *amnt, const TokenType *token, 
 		if (tx_type == 1 || tx_type == 6) {
 			suffix = " WAN";
 		} else {
-			// constants from trezor-common/defs/ethereum/networks.json
-			switch (chain_id) {
-				case    1: suffix = " ETH";  break;  // Ethereum
-				case    2: suffix = " EXP";  break;  // Expanse
-				case    3: suffix = " tROP"; break;  // Ethereum Testnet Ropsten
-				case    4: suffix = " tRIN"; break;  // Ethereum Testnet Rinkeby
-				case    8: suffix = " UBQ";  break;  // UBIQ
-				case   20: suffix = " EOSC"; break;  // EOS Classic
-				case   28: suffix = " ETSC"; break;  // Ethereum Social
-				case   30: suffix = " RSK";  break;  // RSK
-				case   31: suffix = " tRSK"; break;  // RSK Testnet
-				case   42: suffix = " tKOV"; break;  // Ethereum Testnet Kovan
-				case   60: suffix = " GO";   break;  // GoChain
-				case   61: suffix = " ETC";  break;  // Ethereum Classic
-				case   62: suffix = " tETC"; break;  // Ethereum Classic Testnet
-				case   64: suffix = " ELLA"; break;  // Ellaism
-				case  820: suffix = " CLO";  break;  // Callisto
-				case 1620: suffix = " ATH";  break;  // Atheios
-				case 1987: suffix = " EGEM"; break;  // EtherGem
-				case 31102: suffix = " ESN"; break;  // Ethersocial Network
-				case 200625: suffix = " AKA"; break; // Akroma
-				case 1313114: suffix = " ETHO"; break; // Ether-1
-				case 7762959: suffix = " MUSI"; break; // Musicoin
-				case 3125659152: suffix = " PIRL"; break; // Pirl
-				default  : suffix = " UNKN"; break;  // unknown chain
-			}
+			ASSIGN_ETHEREUM_SUFFIX(suffix, chain_id);
 		}
 	}
 	bn_format(amnt, NULL, suffix, decimals, 0, false, buf, buflen);
@@ -470,7 +464,7 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 	/* eip-155 chain id */
 	if (msg->has_chain_id) {
 		if (msg->chain_id < 1) {
-			fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Chain Id out of bounds"));
+			fsm_sendFailure(FailureType_Failure_DataError, _("Chain Id out of bounds"));
 			ethereum_signing_abort();
 			return;
 		}
@@ -484,7 +478,7 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 		if (msg->tx_type == 1 || msg->tx_type == 6) {
 			tx_type = msg->tx_type;
 		} else {
-			fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Txtype out of bounds"));
+			fsm_sendFailure(FailureType_Failure_DataError, _("Txtype out of bounds"));
 			ethereum_signing_abort();
 			return;
 		}
@@ -494,7 +488,7 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 
 	if (msg->has_data_length && msg->data_length > 0) {
 		if (!msg->has_data_initial_chunk || msg->data_initial_chunk.size == 0) {
-			fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Data length provided, but no initial chunk"));
+			fsm_sendFailure(FailureType_Failure_DataError, _("Data length provided, but no initial chunk"));
 			ethereum_signing_abort();
 			return;
 		}
@@ -502,7 +496,7 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 		 * prevent exceeding the limit we use a stricter limit on data length.
 		 */
 		if (msg->data_length > 16000000)  {
-			fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Data length exceeds limit"));
+			fsm_sendFailure(FailureType_Failure_DataError, _("Data length exceeds limit"));
 			ethereum_signing_abort();
 			return;
 		}
@@ -511,14 +505,14 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 		data_total = 0;
 	}
 	if (msg->data_initial_chunk.size > data_total) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Invalid size of initial chunk"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Invalid size of initial chunk"));
 		ethereum_signing_abort();
 		return;
 	}
 
 	// safety checks
 	if (!ethereum_signing_check(msg)) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Safety check failed"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Safety check failed"));
 		ethereum_signing_abort();
 		return;
 	}
@@ -537,16 +531,16 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 		layoutEthereumConfirmTx(msg->to.bytes, msg->to.size, msg->value.bytes, msg->value.size, NULL);
 	}
 
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_SignTx, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_SignTx, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		ethereum_signing_abort();
 		return;
 	}
 
 	if (token == NULL && data_total > 0) {
 		layoutEthereumData(msg->data_initial_chunk.bytes, msg->data_initial_chunk.size, data_total);
-		if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_SignTx, false)) {
-			fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+		if (!protectButton(ButtonRequestType_ButtonRequest_SignTx, false)) {
+			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 			ethereum_signing_abort();
 			return;
 		}
@@ -555,8 +549,8 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 	layoutEthereumFee(msg->value.bytes, msg->value.size,
 					  msg->gas_price.bytes, msg->gas_price.size,
 					  msg->gas_limit.bytes, msg->gas_limit.size, token != NULL);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_SignTx, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_SignTx, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		ethereum_signing_abort();
 		return;
 	}
@@ -573,11 +567,10 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 	rlp_length += rlp_calculate_length(msg->value.size, msg->value.bytes[0]);
 	rlp_length += rlp_calculate_length(data_total, msg->data_initial_chunk.bytes[0]);
 	if (tx_type) {
-		rlp_length += rlp_calculate_length(1, tx_type);
+		rlp_length += rlp_calculate_number_length(tx_type);
 	}
 	if (chain_id) {
-		int length = chain_id < 0x100 ? 1: chain_id < 0x10000 ? 2: chain_id < 0x1000000 ? 3 : 4;
-		rlp_length += rlp_calculate_length(length, chain_id);
+		rlp_length += rlp_calculate_number_length(chain_id);
 		rlp_length += rlp_calculate_length(0, 0);
 		rlp_length += rlp_calculate_length(0, 0);
 	}
@@ -608,22 +601,22 @@ void ethereum_signing_init(EthereumSignTx *msg, const HDNode *node)
 	}
 }
 
-void ethereum_signing_txack(EthereumTxAck *tx)
+void ethereum_signing_txack(const EthereumTxAck *tx)
 {
 	if (!ethereum_signing) {
-		fsm_sendFailure(Failure_FailureType_Failure_UnexpectedMessage, _("Not in Ethereum signing mode"));
+		fsm_sendFailure(FailureType_Failure_UnexpectedMessage, _("Not in Ethereum signing mode"));
 		layoutHome();
 		return;
 	}
 
 	if (tx->data_chunk.size > data_left) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Too much data"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Too much data"));
 		ethereum_signing_abort();
 		return;
 	}
 
 	if (data_left > 0 && (!tx->has_data_chunk || tx->data_chunk.size == 0)) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Empty data chunk received"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Empty data chunk received"));
 		ethereum_signing_abort();
 		return;
 	}
@@ -668,7 +661,7 @@ static void ethereum_message_hash(const uint8_t *message, size_t message_len, ui
 	keccak_Final(&ctx, hash);
 }
 
-void ethereum_message_sign(EthereumSignMessage *msg, const HDNode *node, EthereumMessageSignature *resp)
+void ethereum_message_sign(const EthereumSignMessage *msg, const HDNode *node, EthereumMessageSignature *resp)
 {
 	uint8_t hash[32];
 
@@ -681,7 +674,7 @@ void ethereum_message_sign(EthereumSignMessage *msg, const HDNode *node, Ethereu
 
 	uint8_t v;
 	if (ecdsa_sign_digest(&secp256k1, node->private_key, hash, resp->signature.bytes, &v, ethereum_is_canonic) != 0) {
-		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Signing failed"));
+		fsm_sendFailure(FailureType_Failure_ProcessError, _("Signing failed"));
 		return;
 	}
 
@@ -691,10 +684,10 @@ void ethereum_message_sign(EthereumSignMessage *msg, const HDNode *node, Ethereu
 	msg_write(MessageType_MessageType_EthereumMessageSignature, resp);
 }
 
-int ethereum_message_verify(EthereumVerifyMessage *msg)
+int ethereum_message_verify(const EthereumVerifyMessage *msg)
 {
 	if (msg->signature.size != 65 || msg->address.size != 20) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Malformed data"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Malformed data"));
 		return 1;
 	}
 
@@ -711,7 +704,7 @@ int ethereum_message_verify(EthereumVerifyMessage *msg)
 		v -= 27;
 	}
 	if (v >= 2 ||
-		ecdsa_verify_digest_recover(&secp256k1, pubkey, msg->signature.bytes, hash, v) != 0) {
+		ecdsa_recover_pub_from_sig(&secp256k1, pubkey, msg->signature.bytes, hash, v) != 0) {
 		return 2;
 	}
 

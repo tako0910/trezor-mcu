@@ -73,6 +73,7 @@ typedef struct _Storage {
     STORAGE_NODE   (u2froot)
     STORAGE_BOOL   (unfinished_backup)
     STORAGE_UINT32 (auto_lock_delay_ms)
+    STORAGE_BOOL   (no_backup)
 } Storage;
 
 extern Storage storageUpdate;
@@ -83,7 +84,7 @@ void storage_clear_update(void);
 void storage_update(void);
 void session_clear(bool clear_pin);
 
-void storage_loadDevice(LoadDevice *msg);
+void storage_loadDevice(const LoadDevice *msg);
 
 const uint8_t *storage_getSeed(bool usePassphrase);
 
@@ -141,6 +142,9 @@ void storage_setNeedsBackup(bool needs_backup);
 
 bool storage_unfinishedBackup(void);
 void storage_setUnfinishedBackup(bool unfinished_backup);
+
+bool storage_noBackup(void);
+void storage_setNoBackup(void);
 
 void storage_applyFlags(uint32_t flags);
 uint32_t storage_getFlags(void);

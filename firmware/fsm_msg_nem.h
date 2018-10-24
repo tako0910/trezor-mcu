@@ -1,3 +1,22 @@
+/*
+ * This file is part of the TREZOR project, https://trezor.io/
+ *
+ * Copyright (C) 2017 Saleem Rashid <trezor@saleemrashid.com>
+ *
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 void fsm_msgNEMGetAddress(NEMGetAddress *msg)
 {
 	if (!msg->has_network) {
@@ -23,7 +42,7 @@ void fsm_msgNEMGetAddress(NEMGetAddress *msg)
 		strlcpy(desc, network, sizeof(desc));
 		strlcat(desc, ":", sizeof(desc));
 
-		if (!fsm_layoutAddress(resp->address, desc, true, 0, msg->address_n, msg->address_n_count)) {
+		if (!fsm_layoutAddress(resp->address, desc, true, 0, msg->address_n, msg->address_n_count, false)) {
 			return;
 		}
 	}
@@ -77,7 +96,7 @@ void fsm_msgNEMSignTx(NEMSignTx *msg) {
 		nem_get_address(msg->multisig.signer.bytes, msg->multisig.network, address);
 
 		if (!nem_askMultisig(address, network, cosigning, msg->transaction.fee)) {
-			fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+			fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 			layoutHome();
 			return;
 		}
@@ -90,7 +109,7 @@ void fsm_msgNEMSignTx(NEMSignTx *msg) {
 
 	hdnode_fill_public_key(node);
 
-	const NEMSignTx_NEMTransactionCommon *common = msg->has_multisig ? &msg->multisig : &msg->transaction;
+	const NEMTransactionCommon *common = msg->has_multisig ? &msg->multisig : &msg->transaction;
 
 	char address[NEM_ADDRESS_SIZE + 1];
 	hdnode_get_nem_address(node, common->network, address);
@@ -100,37 +119,37 @@ void fsm_msgNEMSignTx(NEMSignTx *msg) {
 	}
 
 	if (msg->has_transfer && !nem_askTransfer(common, &msg->transfer, network)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 		layoutHome();
 		return;
 	}
 
 	if (msg->has_provision_namespace && !nem_askProvisionNamespace(common, &msg->provision_namespace, network)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 		layoutHome();
 		return;
 	}
 
 	if (msg->has_mosaic_creation && !nem_askMosaicCreation(common, &msg->mosaic_creation, network, address)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 		layoutHome();
 		return;
 	}
 
 	if (msg->has_supply_change && !nem_askSupplyChange(common, &msg->supply_change, network)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 		layoutHome();
 		return;
 	}
 
 	if (msg->has_aggregate_modification && !nem_askAggregateModification(common, &msg->aggregate_modification, network, !msg->has_multisig)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 		layoutHome();
 		return;
 	}
 
 	if (msg->has_importance_transfer && !nem_askImportanceTransfer(common, &msg->importance_transfer, network)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, _("Signing cancelled by user"));
 		layoutHome();
 		return;
 	}
@@ -241,8 +260,8 @@ void fsm_msgNEMDecryptMessage(NEMDecryptMessage *msg)
 		_("Decrypt message"),
 		_("Confirm address?"),
 		address);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Other, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
@@ -267,7 +286,7 @@ void fsm_msgNEMDecryptMessage(NEMDecryptMessage *msg)
 			size,
 			resp->payload.bytes);
 	if (!ret) {
-		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Failed to decrypt payload"));
+		fsm_sendFailure(FailureType_Failure_ProcessError, _("Failed to decrypt payload"));
 		layoutHome();
 		return;
 	}
@@ -276,8 +295,8 @@ void fsm_msgNEMDecryptMessage(NEMDecryptMessage *msg)
 	resp->payload.size = NEM_DECRYPTED_SIZE(resp->payload.bytes, size);
 
 	layoutNEMTransferPayload(resp->payload.bytes, resp->payload.size, true);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Other, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}

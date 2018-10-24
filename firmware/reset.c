@@ -34,13 +34,28 @@ static uint32_t strength;
 static uint8_t  int_entropy[32];
 static bool     awaiting_entropy = false;
 static bool     skip_backup = false;
+static bool     no_backup = false;
 
-void reset_init(bool display_random, uint32_t _strength, bool passphrase_protection, bool pin_protection, const char *language, const char *label, uint32_t u2f_counter, bool _skip_backup)
+void reset_init(bool display_random, uint32_t _strength, bool passphrase_protection, bool pin_protection, const char *language, const char *label, uint32_t u2f_counter, bool _skip_backup, bool _no_backup)
 {
 	if (_strength != 128 && _strength != 192 && _strength != 256) return;
 
 	strength = _strength;
 	skip_backup = _skip_backup;
+	no_backup = _no_backup;
+
+	if (display_random && (skip_backup || no_backup)) {
+		fsm_sendFailure(FailureType_Failure_ProcessError, "Can't show internal entropy when backup is skipped");
+		layoutHome();
+		return;
+	}
+
+	layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"), NULL, _("Do you really want to"), _("create a new wallet?"), NULL, NULL, NULL, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
+		layoutHome();
+		return;
+	}
 
 	random_buffer(int_entropy, 32);
 
@@ -52,15 +67,15 @@ void reset_init(bool display_random, uint32_t _strength, bool passphrase_protect
 
 	if (display_random) {
 		layoutDialogSwipe(&bmp_icon_info, _("Cancel"), _("Continue"), NULL, _("Internal entropy:"), ent_str[0], ent_str[1], ent_str[2], ent_str[3], NULL);
-		if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ResetDevice, false)) {
-			fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+		if (!protectButton(ButtonRequestType_ButtonRequest_ResetDevice, false)) {
+			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 			layoutHome();
 			return;
 		}
 	}
 
 	if (pin_protection && !protectChangePin()) {
-		fsm_sendFailure(Failure_FailureType_Failure_PinMismatch, NULL);
+		fsm_sendFailure(FailureType_Failure_PinMismatch, NULL);
 		layoutHome();
 		return;
 	}
@@ -80,7 +95,7 @@ void reset_init(bool display_random, uint32_t _strength, bool passphrase_protect
 void reset_entropy(const uint8_t *ext_entropy, uint32_t len)
 {
 	if (!awaiting_entropy) {
-		fsm_sendFailure(Failure_FailureType_Failure_UnexpectedMessage, _("Not in Reset mode"));
+		fsm_sendFailure(FailureType_Failure_UnexpectedMessage, _("Not in Reset mode"));
 		return;
 	}
 	SHA256_CTX ctx;
@@ -88,12 +103,16 @@ void reset_entropy(const uint8_t *ext_entropy, uint32_t len)
 	sha256_Update(&ctx, int_entropy, 32);
 	sha256_Update(&ctx, ext_entropy, len);
 	sha256_Final(&ctx, int_entropy);
-	storage_setNeedsBackup(true);
+	if (no_backup) {
+		storage_setNoBackup();
+	} else {
+		storage_setNeedsBackup(true);
+	}
 	storage_setMnemonic(mnemonic_from_data(int_entropy, strength / 8));
 	memset(int_entropy, 0, 32);
 	awaiting_entropy = false;
 
-	if (skip_backup) {
+	if (skip_backup || no_backup) {
 		storage_update();
 		fsm_sendSuccess(_("Device successfully initialized"));
 		layoutHome();
@@ -109,7 +128,7 @@ static char current_word[10];
 void reset_backup(bool separated)
 {
 	if (!storage_needsBackup()) {
-		fsm_sendFailure(Failure_FailureType_Failure_UnexpectedMessage, _("Seed already backed up"));
+		fsm_sendFailure(FailureType_Failure_UnexpectedMessage, _("Seed already backed up"));
 		return;
 	}
 
@@ -136,13 +155,13 @@ void reset_backup(bool separated)
 				i++;
 			}
 			layoutResetWord(current_word, pass, word_pos, mnemonic[i] == 0);
-			if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ConfirmWord, true)) {
+			if (!protectButton(ButtonRequestType_ButtonRequest_ConfirmWord, true)) {
 				if (!separated) {
 					storage_clear_update();
 					session_clear(true);
 				}
 				layoutHome();
-				fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+				fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 				return;
 			}
 			word_pos++;

@@ -55,7 +55,7 @@ static const char *slip44_extras(uint32_t coin_type)
 
 #define BIP32_MAX_LAST_ELEMENT 1000000
 
-static const char *address_n_str(const uint32_t *address_n, size_t address_n_count)
+static const char *address_n_str(const uint32_t *address_n, size_t address_n_count, bool address_is_account)
 {
 	if (address_n_count > 8) {
 		return _("Unknown long path");
@@ -96,7 +96,7 @@ static const char *address_n_str(const uint32_t *address_n, size_t address_n_cou
 					abbr = slip44_extras(address_n[1]);
 				}
 			}
-			uint32_t accnum = (address_n[2] & 0x7fffffff) + 1;
+			const uint32_t accnum = address_is_account ? ((address_n[4] & 0x7fffffff) + 1) : (address_n[2] & 0x7fffffff) + 1;
 			if (abbr && accnum < 100) {
 				memset(path, 0, sizeof(path));
 				strlcpy(path, abbr, sizeof(path));
@@ -109,7 +109,11 @@ static const char *address_n_str(const uint32_t *address_n, size_t address_n_cou
 				if (native_segwit) {
 					strlcat(path, " segwit", sizeof(path));
 				}
-				strlcat(path, " account #", sizeof(path));
+				if (address_is_account) {
+					strlcat(path, " address #", sizeof(path));
+				} else {
+					strlcat(path, " account #", sizeof(path));
+				}
 				char acc[3];
 				memset(acc, 0, sizeof(acc));
 				if (accnum < 10) {
@@ -179,6 +183,22 @@ const char **split_message(const uint8_t *msg, uint32_t len, uint32_t rowlen)
 	return ret;
 }
 
+const char **split_message_hex(const uint8_t *msg, uint32_t len)
+{
+	char hex[32 * 2 + 1];
+	memset(hex, 0, sizeof(hex));
+	uint32_t size = len;
+	if (len > 32) {
+		size = 32;
+	}
+	data2hex(msg, size, hex);
+	if (len > 32) {
+		hex[63] = '.';
+		hex[62] = '.';
+	}
+	return split_message((const uint8_t *)hex, size * 2, 16);
+}
+
 void *layoutLast = layoutHome;
 
 void layoutDialogSwipe(const BITMAP *icon, const char *btnNo, const char *btnYes, const char *desc, const char *line1, const char *line2, const char *line3, const char *line4, const char *line5, const char *line6)
@@ -230,6 +250,10 @@ void layoutHome(void)
 			oledDrawBitmap(40, 0, &bmp_logo64);
 		}
 	}
+	if (storage_noBackup()) {
+		oledBox(0, 0, 127, 8, false);
+		oledDrawStringCenter(0, "NO BACKUP!", FONT_STANDARD);
+	} else
 	if (storage_unfinishedBackup()) {
 		oledBox(0, 0, 127, 8, false);
 		oledDrawStringCenter(0, "BACKUP FAILED!", FONT_STANDARD);
@@ -244,43 +268,39 @@ void layoutHome(void)
 	system_millis_lock_start = timer_ms();
 }
 
-void layoutConfirmOutput(const CoinInfo *coin, const TxAck_TransactionType_TxOutputType *out)
+static void render_address_dialog(const CoinInfo *coin, const char *address, const char *line1, const char *line2, const char *extra_line)
 {
-	char str_out[32 + 3];
-	bn_format_uint64(out->amount, NULL, coin->coin_shortcut, BITCOIN_DIVISIBILITY, 0, false, str_out, sizeof(str_out) - 3);
-	strlcat(str_out, " to", sizeof(str_out));
-	const char *addr = out->address;
-	if (coin->cashaddr_prefix) {
+	if (coin && coin->cashaddr_prefix) {
 		/* If this is a cashaddr address, remove the prefix from the
 		 * string presented to the user
 		 */
 		int prefix_len = strlen(coin->cashaddr_prefix);
-		if (strncmp(addr, coin->cashaddr_prefix, prefix_len) == 0
-			&& addr[prefix_len] == ':') {
-			addr += prefix_len + 1;
+		if (strncmp(address, coin->cashaddr_prefix, prefix_len) == 0
+			&& address[prefix_len] == ':') {
+			address += prefix_len + 1;
 		}
 	}
-	int addrlen = strlen(addr);
+	int addrlen = strlen(address);
 	int numlines = addrlen <= 42 ? 2 : 3;
 	int linelen = (addrlen - 1) / numlines + 1;
 	if (linelen > 21) {
 		linelen = 21;
 	}
-	const char **str = split_message((const uint8_t *)addr, addrlen, linelen);
+	const char **str = split_message((const uint8_t *)address, addrlen, linelen);
 	layoutLast = layoutDialogSwipe;
 	layoutSwipe();
 	oledClear();
 	oledDrawBitmap(0, 0, &bmp_icon_question);
-	oledDrawString(20, 0 * 9, _("Confirm sending"), FONT_STANDARD);
-	oledDrawString(20, 1 * 9, str_out, FONT_STANDARD);
+	oledDrawString(20, 0 * 9, line1, FONT_STANDARD);
+	oledDrawString(20, 1 * 9, line2, FONT_STANDARD);
 	int left = linelen > 18 ? 0 : 20;
 	oledDrawString(left, 2 * 9, str[0], FONT_FIXED);
 	oledDrawString(left, 3 * 9, str[1], FONT_FIXED);
 	oledDrawString(left, 4 * 9, str[2], FONT_FIXED);
 	oledDrawString(left, 5 * 9, str[3], FONT_FIXED);
 	if (!str[3][0]) {
-		if (out->address_n_count > 0) {
-			oledDrawString(0, 5*9, address_n_str(out->address_n, out->address_n_count), FONT_STANDARD);
+		if (extra_line) {
+			oledDrawString(0, 5 * 9, extra_line, FONT_STANDARD);
 		} else {
 			oledHLine(OLED_HEIGHT - 13);
 		}
@@ -290,21 +310,31 @@ void layoutConfirmOutput(const CoinInfo *coin, const TxAck_TransactionType_TxOut
 	oledRefresh();
 }
 
-void layoutConfirmOpReturn(const uint8_t *data, uint32_t size)
+void layoutConfirmOutput(const CoinInfo *coin, const TxOutputType *out)
 {
-	bool ascii_only = true;
+	char str_out[32 + 3];
+	bn_format_uint64(out->amount, NULL, coin->coin_shortcut, BITCOIN_DIVISIBILITY, 0, false, str_out, sizeof(str_out) - 3);
+	strlcat(str_out, " to", sizeof(str_out));
+	const char *address = out->address;
+	const char *extra_line = (out->address_n_count > 0) ? address_n_str(out->address_n, out->address_n_count, false) : 0;
+	render_address_dialog(coin, address, _("Confirm sending"), str_out, extra_line);
+}
+
+bool is_valid_ascii(const uint8_t *data, uint32_t size)
+{
 	for (uint32_t i = 0; i < size; i++) {
 		if (data[i] < ' ' || data[i] > '~') {
-			ascii_only = false;
-			break;
+			return false;
 		}
 	}
+	return true;
+}
+
+void layoutConfirmOpReturn(const uint8_t *data, uint32_t size)
+{
 	const char **str;
-	if (!ascii_only) {
-		char hex[65];
-		memset(hex, 0, sizeof(hex));
-		data2hex(data, (size > 32) ? 32 : size, hex);
-		str = split_message((const uint8_t *)hex, size * 2, 16);
+	if (!is_valid_ascii(data, size)) {
+		str = split_message_hex(data, size);
 	} else {
 		str = split_message(data, size, 20);
 	}
@@ -358,27 +388,39 @@ void layoutFeeOverThreshold(const CoinInfo *coin, uint64_t fee)
 
 void layoutSignMessage(const uint8_t *msg, uint32_t len)
 {
-	const char **str = split_message(msg, len, 16);
-	layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"),
-		_("Sign message?"),
-		str[0], str[1], str[2], str[3], NULL, NULL);
-}
-
-void layoutVerifyAddress(const char *address)
-{
-	const char **str = split_message((const uint8_t *)address, strlen(address), 17);
-	layoutDialogSwipe(&bmp_icon_info, _("Cancel"), _("Confirm"),
-		_("Confirm address?"),
-		_("Message signed by:"),
-		str[0], str[1], str[2], NULL, NULL);
+	const char **str;
+	if (!is_valid_ascii(msg, len)) {
+		str = split_message_hex(msg, len);
+		layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"),
+			_("Sign binary message?"),
+			str[0], str[1], str[2], str[3], NULL, NULL);
+	} else {
+		str = split_message(msg, len, 20);
+		layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"),
+			_("Sign message?"),
+			str[0], str[1], str[2], str[3], NULL, NULL);
+	}
 }
 
 void layoutVerifyMessage(const uint8_t *msg, uint32_t len)
 {
-	const char **str = split_message(msg, len, 16);
-	layoutDialogSwipe(&bmp_icon_info, _("Cancel"), _("Confirm"),
-		_("Verified message"),
-		str[0], str[1], str[2], str[3], NULL, NULL);
+	const char **str;
+	if (!is_valid_ascii(msg, len)) {
+		str = split_message_hex(msg, len);
+		layoutDialogSwipe(&bmp_icon_info, _("Cancel"), _("Confirm"),
+			_("Verified binary message"),
+			str[0], str[1], str[2], str[3], NULL, NULL);
+	} else {
+		str = split_message(msg, len, 20);
+		layoutDialogSwipe(&bmp_icon_info, _("Cancel"), _("Confirm"),
+			_("Verified message"),
+			str[0], str[1], str[2], str[3], NULL, NULL);
+	}
+}
+
+void layoutVerifyAddress(const CoinInfo *coin, const char *address)
+{
+	render_address_dialog(coin, address, _("Confirm address?"), _("Message signed by:"), 0);
 }
 
 void layoutCipherKeyValue(bool encrypt, const char *key)
@@ -458,7 +500,7 @@ void layoutResetWord(const char *word, int pass, int word_pos, bool last)
 	oledRefresh();
 }
 
-void layoutAddress(const char *address, const char *desc, bool qrcode, bool ignorecase, const uint32_t *address_n, size_t address_n_count)
+void layoutAddress(const char *address, const char *desc, bool qrcode, bool ignorecase, const uint32_t *address_n, size_t address_n_count, bool address_is_account)
 {
 	if (layoutLast != layoutAddress) {
 		layoutSwipe();
@@ -504,15 +546,19 @@ void layoutAddress(const char *address, const char *desc, bool qrcode, bool igno
 			}
 		}
 	} else {
-		uint32_t rowlen = (addrlen - 1) / (addrlen <= 42 ? 2 : addrlen <= 63 ? 3 : 4) + 1;
-		const char **str = split_message((const uint8_t *)address, addrlen, rowlen);
 		if (desc) {
 			oledDrawString(0, 0 * 9, desc, FONT_STANDARD);
 		}
-		for (int i = 0; i < 4; i++) {
-			oledDrawString(0, (i + 1) * 9 + 4, str[i], FONT_FIXED);
+		if (addrlen > 10) { // don't split short addresses
+			uint32_t rowlen = (addrlen - 1) / (addrlen <= 42 ? 2 : addrlen <= 63 ? 3 : 4) + 1;
+			const char **str = split_message((const uint8_t *)address, addrlen, rowlen);
+			for (int i = 0; i < 4; i++) {
+				oledDrawString(0, (i + 1) * 9 + 4, str[i], FONT_FIXED);
+			}
+		} else {
+			oledDrawString(0, (0 + 1) * 9 + 4, address, FONT_FIXED);
 		}
-		oledDrawString(0, 42, address_n_str(address_n, address_n_count), FONT_STANDARD);
+		oledDrawString(0, 42, address_n_str(address_n, address_n_count, address_is_account), FONT_STANDARD);
 	}
 
 	if (!qrcode) {
@@ -525,7 +571,7 @@ void layoutAddress(const char *address, const char *desc, bool qrcode, bool igno
 
 void layoutPublicKey(const uint8_t *pubkey)
 {
-	char hex[32 * 2 + 1], desc[16];
+	char desc[16];
 	strlcpy(desc, "Public Key: 00", sizeof(desc));
 	if (pubkey[0] == 1) {
 		/* ed25519 public key */
@@ -533,8 +579,7 @@ void layoutPublicKey(const uint8_t *pubkey)
 	} else {
 		data2hex(pubkey, 1, desc + 12);
 	}
-	data2hex(pubkey + 1, 32, hex);
-	const char **str = split_message((const uint8_t *)hex, 32 * 2, 16);
+	const char **str = split_message_hex(pubkey + 1, 32 * 2);
 	layoutDialogSwipe(&bmp_icon_question, NULL, _("Continue"), NULL,
 		desc, str[0], str[1], str[2], str[3], NULL);
 }
@@ -713,7 +758,7 @@ void layoutNEMNetworkFee(const char *desc, bool confirm, const char *fee1_desc, 
 		NULL);
 }
 
-void layoutNEMTransferMosaic(const NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition *definition, uint64_t quantity, const bignum256 *multiplier, uint8_t network) {
+void layoutNEMTransferMosaic(const NEMMosaicDefinition *definition, uint64_t quantity, const bignum256 *multiplier, uint8_t network) {
 	char str_out[32], str_levy[32];
 
 	nem_mosaicFormatAmount(definition, quantity, multiplier, str_out, sizeof(str_out));
@@ -782,8 +827,8 @@ void layoutNEMMosaicDescription(const char *description) {
 		str[0], str[1], str[2], str[3], NULL, NULL);
 }
 
-void layoutNEMLevy(const NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition *definition, uint8_t network) {
-	const NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition *mosaic;
+void layoutNEMLevy(const NEMMosaicDefinition *definition, uint8_t network) {
+	const NEMMosaicDefinition *mosaic;
 	if (nem_mosaicMatches(definition, definition->levy_namespace, definition->levy_mosaic, network)) {
 		mosaic = definition;
 	} else {
@@ -798,7 +843,7 @@ void layoutNEMLevy(const NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition *defini
 	char str_out[32];
 
 	switch (definition->levy) {
-	case NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition_NEMMosaicLevy_MosaicLevy_Percentile:
+	case NEMMosaicLevy_MosaicLevy_Percentile:
 		bn_format_uint64(definition->fee, NULL, NULL, 0, 0, false, str_out, sizeof(str_out));
 
 		layoutDialogSwipe(&bmp_icon_question,
@@ -813,7 +858,7 @@ void layoutNEMLevy(const NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition *defini
 			NULL);
 		break;
 
-	case NEMSignTx_NEMMosaicCreation_NEMMosaicDefinition_NEMMosaicLevy_MosaicLevy_Absolute:
+	case NEMMosaicLevy_MosaicLevy_Absolute:
 	default:
 		nem_mosaicFormatAmount(mosaic, definition->fee, NULL, str_out, sizeof(str_out));
 		layoutDialogSwipe(&bmp_icon_question,

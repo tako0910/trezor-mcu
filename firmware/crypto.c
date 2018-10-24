@@ -20,7 +20,6 @@
 #include <string.h>
 #include "crypto.h"
 #include "sha2.h"
-#include "ripemd160.h"
 #include "pbkdf2.h"
 #include "aes/aes.h"
 #include "hmac.h"
@@ -164,7 +163,7 @@ int cryptoMessageVerify(const CoinInfo *coin, const uint8_t *message, size_t mes
 
 	// check if signature verifies the digest and recover the public key
 	uint8_t pubkey[65];
-	if (ecdsa_verify_digest_recover(coin->curve->params, pubkey, signature + 1, hash, recid) != 0) {
+	if (ecdsa_recover_pub_from_sig(coin->curve->params, pubkey, signature + 1, hash, recid) != 0) {
 		return 3;
 	}
 	// convert public key to compressed pubkey if necessary
@@ -335,7 +334,7 @@ int cryptoMessageDecrypt(curve_point *nonce, uint8_t *payload, size_t payload_le
 }
 */
 
-uint8_t *cryptoHDNodePathToPubkey(const CoinInfo *coin, const MultisigRedeemScriptType_HDNodePathType *hdnodepath)
+uint8_t *cryptoHDNodePathToPubkey(const CoinInfo *coin, const HDNodePathType *hdnodepath)
 {
 	if (!hdnodepath->node.has_public_key || hdnodepath->node.public_key.size != 33) return 0;
 	static HDNode node;
@@ -365,7 +364,7 @@ int cryptoMultisigPubkeyIndex(const CoinInfo *coin, const MultisigRedeemScriptTy
 
 int cryptoMultisigFingerprint(const MultisigRedeemScriptType *multisig, uint8_t *hash)
 {
-	static const MultisigRedeemScriptType_HDNodePathType *ptr[15], *swap;
+	static const HDNodePathType *ptr[15], *swap;
 	const uint32_t n = multisig->pubkeys_count;
 	if (n < 1 || n > 15) {
 		return 0;

@@ -344,6 +344,14 @@ static void storage_commit_locked(bool update)
 			storageUpdate.has_needs_backup = storageRom->has_needs_backup;
 			storageUpdate.needs_backup = storageRom->needs_backup;
 		}
+		if (!storageUpdate.has_unfinished_backup) {
+			storageUpdate.has_unfinished_backup = storageRom->has_unfinished_backup;
+			storageUpdate.unfinished_backup = storageRom->unfinished_backup;
+		}
+		if (!storageUpdate.has_no_backup) {
+			storageUpdate.has_no_backup = storageRom->has_no_backup;
+			storageUpdate.no_backup = storageRom->no_backup;
+		}
 		if (!storageUpdate.has_flags) {
 			storageUpdate.has_flags = storageRom->has_flags;
 			storageUpdate.flags = storageRom->flags;
@@ -422,7 +430,7 @@ void storage_dumpNode(HDNodeType *node) {
 }
 #endif
 
-void storage_loadDevice(LoadDevice *msg)
+void storage_loadDevice(const LoadDevice *msg)
 {
 	session_clear(true);
 
@@ -566,7 +574,7 @@ bool storage_getRootNode(HDNode *node, const char *curve, bool usePassphrase)
 			uint8_t secret[64];
 			PBKDF2_HMAC_SHA512_CTX pctx;
 			char oldTiny = usbTiny(1);
-			pbkdf2_hmac_sha512_Init(&pctx, (const uint8_t *)sessionPassphrase, strlen(sessionPassphrase), (const uint8_t *)"TREZORHD", 8);
+			pbkdf2_hmac_sha512_Init(&pctx, (const uint8_t *)sessionPassphrase, strlen(sessionPassphrase), (const uint8_t *)"TREZORHD", 8, 1);
 			get_root_node_callback(0, BIP39_PBKDF2_ROUNDS);
 			for (int i = 0; i < 8; i++) {
 				pbkdf2_hmac_sha512_Update(&pctx, BIP39_PBKDF2_ROUNDS / 8);
@@ -842,6 +850,18 @@ void storage_setUnfinishedBackup(bool unfinished_backup)
 {
 	storageUpdate.has_unfinished_backup = true;
 	storageUpdate.unfinished_backup = unfinished_backup;
+}
+
+bool storage_noBackup(void)
+{
+	return storageUpdate.has_no_backup ? storageUpdate.no_backup
+		: storageRom->has_no_backup && storageRom->no_backup;
+}
+
+void storage_setNoBackup(void)
+{
+	storageUpdate.has_no_backup = true;
+	storageUpdate.no_backup = true;
 }
 
 void storage_applyFlags(uint32_t flags)

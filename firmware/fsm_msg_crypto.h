@@ -1,3 +1,22 @@
+/*
+ * This file is part of the TREZOR project, https://trezor.io/
+ *
+ * Copyright (C) 2018 Pavol Rusnak <stick@satoshilabs.com>
+ *
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 void fsm_msgCipherKeyValue(CipherKeyValue *msg)
 {
 	CHECK_INITIALIZED
@@ -16,8 +35,8 @@ void fsm_msgCipherKeyValue(CipherKeyValue *msg)
 	bool ask_on_decrypt = msg->has_ask_on_decrypt && msg->ask_on_decrypt;
 	if ((encrypt && ask_on_encrypt) || (!encrypt && ask_on_decrypt)) {
 		layoutCipherKeyValue(encrypt, msg->key);
-		if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Other, false)) {
-			fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+		if (!protectButton(ButtonRequestType_ButtonRequest_Other, false)) {
+			fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 			layoutHome();
 			return;
 		}
@@ -46,15 +65,15 @@ void fsm_msgCipherKeyValue(CipherKeyValue *msg)
 	layoutHome();
 }
 
-void fsm_msgSignIdentity(SignIdentity *msg)
+void fsm_msgSignIdentity(const SignIdentity *msg)
 {
 	RESP_INIT(SignedIdentity);
 
 	CHECK_INITIALIZED
 
 	layoutSignIdentity(&(msg->identity), msg->has_challenge_visual ? msg->challenge_visual : 0);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
@@ -63,7 +82,7 @@ void fsm_msgSignIdentity(SignIdentity *msg)
 
 	uint8_t hash[32];
 	if (!msg->has_identity || cryptoIdentityFingerprint(&(msg->identity), hash) == 0) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Invalid identity"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Invalid identity"));
 		layoutHome();
 		return;
 	}
@@ -117,20 +136,20 @@ void fsm_msgSignIdentity(SignIdentity *msg)
 		resp->signature.size = 65;
 		msg_write(MessageType_MessageType_SignedIdentity, resp);
 	} else {
-		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Error signing identity"));
+		fsm_sendFailure(FailureType_Failure_ProcessError, _("Error signing identity"));
 	}
 	layoutHome();
 }
 
-void fsm_msgGetECDHSessionKey(GetECDHSessionKey *msg)
+void fsm_msgGetECDHSessionKey(const GetECDHSessionKey *msg)
 {
 	RESP_INIT(ECDHSessionKey);
 
 	CHECK_INITIALIZED
 
 	layoutDecryptIdentity(&msg->identity);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
@@ -139,7 +158,7 @@ void fsm_msgGetECDHSessionKey(GetECDHSessionKey *msg)
 
 	uint8_t hash[32];
 	if (!msg->has_identity || cryptoIdentityFingerprint(&(msg->identity), hash) == 0) {
-		fsm_sendFailure(Failure_FailureType_Failure_DataError, _("Invalid identity"));
+		fsm_sendFailure(FailureType_Failure_DataError, _("Invalid identity"));
 		layoutHome();
 		return;
 	}
@@ -165,103 +184,12 @@ void fsm_msgGetECDHSessionKey(GetECDHSessionKey *msg)
 		resp->session_key.size = result_size;
 		msg_write(MessageType_MessageType_ECDHSessionKey, resp);
 	} else {
-		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Error getting ECDH session key"));
+		fsm_sendFailure(FailureType_Failure_ProcessError, _("Error getting ECDH session key"));
 	}
 	layoutHome();
 }
 
-/* ECIES disabled
-void fsm_msgEncryptMessage(EncryptMessage *msg)
-{
-	CHECK_INITIALIZED
-
-	CHECK_PARAM(msg->has_pubkey, _("No public key provided"));
-	CHECK_PARAM(msg->has_message, _("No message provided"));
-	CHECK_PARAM(msg->pubkey.size == 33, _("Invalid public key provided"));
-	curve_point pubkey;
-	CHECK_PARAM(ecdsa_read_pubkey(&secp256k1, msg->pubkey.bytes, &pubkey) == 1, _("Invalid public key provided"));
-
-	bool display_only = msg->has_display_only && msg->display_only;
-	bool signing = msg->address_n_count > 0;
-	RESP_INIT(EncryptedMessage);
-	const HDNode *node = 0;
-	uint8_t address_raw[MAX_ADDR_RAW_SIZE];
-	if (signing) {
-		const CoinInfo *coin = fsm_getCoin(msg->has_coin_name, msg->coin_name);
-		if (!coin) return;
-
-		CHECK_PIN
-
-		node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
-		if (!node) return;
-		hdnode_get_address_raw(node, coin->address_type, address_raw);
-	}
-	layoutEncryptMessage(msg->message.bytes, msg->message.size, signing);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
-		layoutHome();
-		return;
-	}
-	layoutProgressSwipe(_("Encrypting"), 0);
-	if (cryptoMessageEncrypt(&pubkey, msg->message.bytes, msg->message.size, display_only, resp->nonce.bytes, &(resp->nonce.size), resp->message.bytes, &(resp->message.size), resp->hmac.bytes, &(resp->hmac.size), signing ? node->private_key : 0, signing ? address_raw : 0) != 0) {
-		fsm_sendFailure(Failure_FailureType_Failure_ProcessError, _("Error encrypting message"));
-		layoutHome();
-		return;
-	}
-	resp->has_nonce = true;
-	resp->has_message = true;
-	resp->has_hmac = true;
-	msg_write(MessageType_MessageType_EncryptedMessage, resp);
-	layoutHome();
-}
-
-void fsm_msgDecryptMessage(DecryptMessage *msg)
-{
-	CHECK_INITIALIZED
-
-	CHECK_PARAM(msg->has_nonce, _("No nonce provided"));
-	CHECK_PARAM(msg->has_message, _("No message provided"));
-	CHECK_PARAM(msg->has_hmac, _("No message hmac provided"));
-
-	CHECK_PARAM(msg->nonce.size == 33, _("Invalid nonce key provided"));
-	curve_point nonce_pubkey;
-	CHECK_PARAM(ecdsa_read_pubkey(&secp256k1, msg->nonce.bytes, &nonce_pubkey) == 1, _("Invalid nonce provided"));
-
-	CHECK_PIN
-
-	const HDNode *node = fsm_getDerivedNode(SECP256K1_NAME, msg->address_n, msg->address_n_count, NULL);
-	if (!node) return;
-
-	layoutProgressSwipe(_("Decrypting"), 0);
-	RESP_INIT(DecryptedMessage);
-	bool display_only = false;
-	bool signing = false;
-	uint8_t address_raw[MAX_ADDR_RAW_SIZE];
-	if (cryptoMessageDecrypt(&nonce_pubkey, msg->message.bytes, msg->message.size, msg->hmac.bytes, msg->hmac.size, node->private_key, resp->message.bytes, &(resp->message.size), &display_only, &signing, address_raw) != 0) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
-		layoutHome();
-		return;
-	}
-	if (signing) {
-		base58_encode_check(address_raw, 21, resp->address, sizeof(resp->address));
-	}
-	layoutDecryptMessage(resp->message.bytes, resp->message.size, signing ? resp->address : 0);
-	protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_Other, true);
-	if (display_only) {
-		resp->has_address = false;
-		resp->has_message = false;
-		memset(resp->address, 0, sizeof(resp->address));
-		memset(&(resp->message), 0, sizeof(resp->message));
-	} else {
-		resp->has_address = signing;
-		resp->has_message = true;
-	}
-	msg_write(MessageType_MessageType_DecryptedMessage, resp);
-	layoutHome();
-}
-*/
-
-void fsm_msgCosiCommit(CosiCommit *msg)
+void fsm_msgCosiCommit(const CosiCommit *msg)
 {
 	RESP_INIT(CosiCommitment);
 
@@ -270,8 +198,8 @@ void fsm_msgCosiCommit(CosiCommit *msg)
 	CHECK_PARAM(msg->has_data, _("No data provided"));
 
 	layoutCosiCommitSign(msg->address_n, msg->address_n_count, msg->data.bytes, msg->data.size, false);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
@@ -299,7 +227,7 @@ void fsm_msgCosiCommit(CosiCommit *msg)
 	layoutHome();
 }
 
-void fsm_msgCosiSign(CosiSign *msg)
+void fsm_msgCosiSign(const CosiSign *msg)
 {
 	RESP_INIT(CosiSignature);
 
@@ -310,8 +238,8 @@ void fsm_msgCosiSign(CosiSign *msg)
 	CHECK_PARAM(msg->has_global_pubkey && msg->global_pubkey.size == 32, _("Invalid global pubkey"));
 
 	layoutCosiCommitSign(msg->address_n, msg->address_n_count, msg->data.bytes, msg->data.size, true);
-	if (!protectButton(ButtonRequest_ButtonRequestType_ButtonRequest_ProtectCall, false)) {
-		fsm_sendFailure(Failure_FailureType_Failure_ActionCancelled, NULL);
+	if (!protectButton(ButtonRequestType_ButtonRequest_ProtectCall, false)) {
+		fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
 		layoutHome();
 		return;
 	}
